@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    paddingBottom: 80, // Add extra padding for the nav bar
+    paddingBottom: 80,
   },
   profileHeader: {
     alignItems: 'center',
@@ -575,6 +575,6 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   bottomSpacer: {
-    height: 70, // Space for bottom nav bar
+    height: 70,
   },
-}); 
+});
