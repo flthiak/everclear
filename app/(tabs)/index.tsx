@@ -109,7 +109,7 @@ export default function IndexScreen() {
         
         setPendingDeliveries(deliveriesCount || 0);
         
-        // Updated query to get low stock items count from both factory and godown stock
+        // Get low stock items count from both factory and godown stock
         const { data: lowStockData, error: lowStockError } = await supabase
           .from('products')
           .select(`
