@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { BarChart } from 'react-native-chart-kit';
 import { supabase } from '@/lib/supabase';
-import { BarChart2, TrendingUp, Calendar } from 'lucide-react-native';
+import { ChartBar as BarChart2, TrendingUp, Calendar } from 'lucide-react-native';
 
 interface TrendData {
   label: string;

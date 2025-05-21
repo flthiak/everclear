@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, SafeAreaView, Modal, ScrollView, Alert, Share, Dimensions, Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { Filter, Search, X, ArrowDownUp, AlertTriangle, Info, Share2, ChevronRight, BarChart2, RefreshCw, Package, Truck, Zap } from 'lucide-react-native';
+import { ListFilter as Filter, Search, X, ArrowDownUp, TriangleAlert as AlertTriangle, Info, Share2, ChevronRight, ChartBar as BarChart2, RefreshCw, Package, Truck, Zap } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { LinearGradient } from 'expo-linear-gradient';
