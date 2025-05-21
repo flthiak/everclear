@@ -1,0 +1,929 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Switch, Dimensions, ScrollView, RefreshControl } from 'react-native';
+import { Zap, ZapOff, Power, Clock, PieChart as PieChartIcon, Calendar } from 'lucide-react-native';
+import { supabase } from '@/lib/supabase';
+import PageTitleBar from '@/components/PageTitleBar';
+import { useAuth } from '../contexts/auth';
+import { PieChart } from 'react-native-svg-charts';
+import { SupabaseClient } from '@supabase/supabase-js';
+import RefreshableScrollView from '../components/RefreshableScrollView';
+
+// We need this for TypeScript to not complain about the library
+declare module 'react-native-svg-charts';
+
+interface PowerOutage {
+  id: string;
+  start_time: string;
+  end_time: string | null;
+  duration_minutes: number | null;
+  created_by: string;
+}
+
+// Time period options for pie chart
+type TimePeriod = 'week' | 'month' | 'year';
+
+// Working hours configuration
+const WORKING_HOURS = {
+  startHour: 8, // 8am
+  endHour: 18, // 6pm
+  breaks: [
+    { startHour: 10, startMinute: 0, endHour: 10, endMinute: 30 }, // Morning break: 10:00-10:30
+    { startHour: 14, startMinute: 0, endHour: 15, endMinute: 0 }  // Afternoon break: 2:00-3:00pm
+  ]
+};
+
+// Helper function to check if a time is during a break
+const isDuringBreak = (date: Date): boolean => {
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  
+  return WORKING_HOURS.breaks.some(breakTime => {
+    const breakStart = breakTime.startHour * 60 + breakTime.startMinute;
+    const breakEnd = breakTime.endHour * 60 + breakTime.endMinute;
+    const currentTime = hours * 60 + minutes;
+    
+    return currentTime >= breakStart && currentTime < breakEnd;
+  });
+};
+
+// Helper function to check if a time is within working hours (excluding breaks)
+const isWorkingHour = (date: Date): boolean => {
+  const hours = date.getHours();
+  const dayOfWeek = date.getDay();
+  
+  // Check if Sunday (0 = Sunday)
+  if (dayOfWeek === 0) {
+    return false;
+  }
+  
+  // Check if within working hours
+  if (hours >= WORKING_HOURS.startHour && hours < WORKING_HOURS.endHour) {
+    // Check if during break
+    return !isDuringBreak(date);
+  }
+  
+  return false;
+};
+
+// Function to calculate working hours affected by outages
+const calculateWorkingHoursOutage = (outages: PowerOutage[], period: TimePeriod): { 
+  onTime: number; 
+  offTime: number; 
+} => {
+  let totalWorkingMinutes = 0;
+  let outageWorkingMinutes = 0;
+  
+  // Calculate start date based on selected period
+  const today = new Date();
+  const startDate = new Date();
+  
+  switch (period) {
+    case 'week':
+      startDate.setDate(today.getDate() - 7);
+      break;
+    case 'month':
+      startDate.setDate(today.getDate() - 30);
+      break;
+    case 'year':
+      startDate.setDate(today.getDate() - 365);
+      break;
+  }
+  
+  // For each day in the selected time period (excluding Sundays)
+  for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+    // Skip Sundays only (0 = Sunday)
+    if (d.getDay() === 0) continue;
+    
+    // Calculate working minutes for the day (excluding breaks)
+    const totalWorkMinutesForDay = (WORKING_HOURS.endHour - WORKING_HOURS.startHour) * 60 - 
+      WORKING_HOURS.breaks.reduce((total, breakTime) => {
+        return total + ((breakTime.endHour * 60 + breakTime.endMinute) - 
+                        (breakTime.startHour * 60 + breakTime.startMinute));
+      }, 0);
+    
+    totalWorkingMinutes += totalWorkMinutesForDay;
+  }
+  
+  // Calculate outage minutes during working hours
+  outages.forEach(outage => {
+    const startTime = new Date(outage.start_time);
+    const endTime = outage.end_time ? new Date(outage.end_time) : new Date();
+    
+    // Skip outages outside the time window
+    if (startTime < startDate) return;
+    
+    // Calculate minute-by-minute to properly account for breaks and working hours
+    let currentTime = new Date(startTime);
+    
+    while (currentTime < endTime) {
+      if (isWorkingHour(currentTime)) {
+        outageWorkingMinutes++;
+      }
+      
+      // Increment by 1 minute
+      currentTime.setMinutes(currentTime.getMinutes() + 1);
+    }
+  });
+  
+  // Ensure outage time doesn't exceed total time
+  outageWorkingMinutes = Math.min(outageWorkingMinutes, totalWorkingMinutes);
+  
+  return {
+    onTime: totalWorkingMinutes - outageWorkingMinutes,
+    offTime: outageWorkingMinutes
+  };
+};
+
+const WorkingHoursPieChart = ({ outages }: { outages: PowerOutage[] }) => {
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>('month');
+  const { onTime, offTime } = calculateWorkingHoursOutage(outages, timePeriod);
+  
+  // Prepare data for pie chart
+  const data = [
+    {
+      key: 1,
+      value: onTime,
+      svg: { fill: '#4CAF50' }, // Green for power ON
+      arc: { outerRadius: '100%', cornerRadius: 5 }
+    },
+    {
+      key: 2,
+      value: offTime,
+      svg: { fill: '#F44336' }, // Red for power OFF
+      arc: { outerRadius: '100%', cornerRadius: 5 }
+    }
+  ];
+  
+  // Don't show chart if no data
+  if (onTime === 0 && offTime === 0) {
+    return (
+      <View style={styles.emptyChartContainer}>
+        <Text style={styles.emptyChartText}>No working hours data available</Text>
+      </View>
+    );
+  }
+  
+  const totalHours = Math.round((onTime + offTime) / 60);
+  const offPercentage = Math.round((offTime / (onTime + offTime)) * 100);
+  
+  // Get time period label
+  const getPeriodLabel = () => {
+    switch (timePeriod) {
+      case 'week': 
+        return 'Last 7 days';
+      case 'month': 
+        return 'Last 30 days';
+      case 'year': 
+        return 'Last 365 days';
+    }
+  };
+  
+  return (
+    <View style={styles.chartContainer}>
+      
+      <View style={styles.chartHeader}>
+        <View style={styles.chartTitleContainer}>
+          <PieChartIcon size={16} color="#333" />
+          <Text style={styles.chartTitle}>Working Hours Power Analysis</Text>
+        </View>
+        <View style={styles.periodToggleContainer}>
+          <Calendar size={14} color="#666" />
+          <Text style={styles.periodLabel}>{getPeriodLabel()}</Text>
+        </View>
+      </View>
+      
+      {/* Time period toggle */}
+      <View style={styles.timePeriodToggle}>
+        <Pressable
+          style={[
+            styles.periodButton,
+            timePeriod === 'week' && styles.activePeriodButton
+          ]}
+          onPress={() => setTimePeriod('week')}
+        >
+          <Text style={[
+            styles.periodButtonText,
+            timePeriod === 'week' && styles.activePeriodButtonText
+          ]}>Week</Text>
+        </Pressable>
+        <Pressable
+          style={[
+            styles.periodButton,
+            timePeriod === 'month' && styles.activePeriodButton
+          ]}
+          onPress={() => setTimePeriod('month')}
+        >
+          <Text style={[
+            styles.periodButtonText,
+            timePeriod === 'month' && styles.activePeriodButtonText
+          ]}>Month</Text>
+        </Pressable>
+        <Pressable
+          style={[
+            styles.periodButton,
+            timePeriod === 'year' && styles.activePeriodButton
+          ]}
+          onPress={() => setTimePeriod('year')}
+        >
+          <Text style={[
+            styles.periodButtonText,
+            timePeriod === 'year' && styles.activePeriodButtonText
+          ]}>Year</Text>
+        </Pressable>
+      </View>
+      
+      <View style={styles.chartContent}>
+        <View style={styles.chartWrapper}>
+          <PieChart
+            style={styles.chart}
+            data={data}
+            innerRadius="70%"
+            padAngle={0.02}
+          />
+          <View style={styles.chartCenterLabel}>
+            <Text style={styles.chartPercentage}>{offPercentage}%</Text>
+            <Text style={styles.chartPercentageLabel}>Outage</Text>
+          </View>
+        </View>
+        <View style={styles.chartLegend}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendColor, { backgroundColor: '#4CAF50' }]} />
+            <Text style={styles.legendText}>Power ON: {Math.round(onTime / 60)} hours</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendColor, { backgroundColor: '#F44336' }]} />
+            <Text style={styles.legendText}>Power OFF: {Math.round(offTime / 60)} hours</Text>
+          </View>
+          <Text style={styles.chartNote}>
+            Based on working hours (8AM-6PM){'\n'}
+            Includes Saturday, excludes breaks & Sunday
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+export default function PowerOutageScreen() {
+  const { user } = useAuth();
+  const [outages, setOutages] = useState<PowerOutage[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isPowerOn, setIsPowerOn] = useState(true);
+  const [isToggling, setIsToggling] = useState(false);
+  const [currentOutageId, setCurrentOutageId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    fetchOutages();
+    checkCurrentOutage();
+  }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchOutages();
+    await checkCurrentOutage();
+    setRefreshing(false);
+  };
+
+  const fetchOutages = async () => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await (supabase as SupabaseClient)
+        .from('power_outages')
+        .select('*')
+        .order('start_time', { ascending: false });
+
+      if (error) {
+        throw new Error(`Failed to fetch outages: ${error.message}`);
+      }
+
+      setOutages(data || []);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const checkCurrentOutage = async () => {
+    try {
+      const { data, error } = await (supabase as SupabaseClient)
+        .from('power_outages')
+        .select('*')
+        .is('end_time', null)
+        .order('start_time', { ascending: false })
+        .limit(1);
+
+      if (error) {
+        throw new Error(`Failed to check current outage: ${error.message}`);
+      }
+
+      if (data && data.length > 0) {
+        setIsPowerOn(false);
+        setCurrentOutageId(data[0].id);
+      } else {
+        setIsPowerOn(true);
+        setCurrentOutageId(null);
+      }
+    } catch (err: any) {
+      console.error('Error checking current outage:', err);
+    }
+  };
+
+  const togglePower = async () => {
+    try {
+      setIsToggling(true);
+      setError(null);
+
+      if (isPowerOn) {
+        // Record power outage start
+        const { data, error } = await (supabase as SupabaseClient)
+          .from('power_outages')
+          .insert([
+            {
+              start_time: new Date().toISOString(),
+            },
+          ])
+          .select();
+
+        if (error) {
+          throw new Error(`Failed to record power outage: ${error.message}`);
+        }
+
+        if (data && data.length > 0) {
+          setCurrentOutageId(data[0].id);
+        }
+      } else if (currentOutageId) {
+        // Record power outage end
+        // Only update the end_time field, the database will calculate duration_minutes
+        const now = new Date();
+        const { error } = await (supabase as SupabaseClient)
+          .from('power_outages')
+          .update({
+            end_time: now.toISOString(),
+            // Remove duration_minutes from update payload as it's handled by database defaults or triggers
+          })
+          .eq('id', currentOutageId);
+
+        if (error) {
+          throw new Error(`Failed to update power outage: ${error.message}`);
+        }
+
+        setCurrentOutageId(null);
+      }
+
+      // Update local state
+      setIsPowerOn(!isPowerOn);
+      
+      // Refresh outage list
+      fetchOutages();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsToggling(false);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return `${date.toLocaleDateString()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  const formatDuration = (minutes: number) => {
+    // Guard against NaN or invalid values
+    if (isNaN(minutes) || minutes === null || minutes === undefined) {
+      return '0 min';
+    }
+    
+    if (minutes < 60) {
+      return `${minutes} min`;
+    }
+    
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    
+    if (remainingMinutes === 0) {
+      return `${hours} hr`;
+    }
+    
+    return `${hours} hr ${remainingMinutes} min`;
+  };
+
+  // Function to calculate duration regardless of which field is used in the database
+  const calculateOutageDuration = (outage: PowerOutage): number => {
+    // First check if duration_minutes or duration is available in the record
+    if (outage.duration_minutes !== null && outage.duration_minutes !== undefined) {
+      return outage.duration_minutes;
+    }
+    
+    // Check if there's a "duration" property (from newer schema)
+    if ('duration' in outage && outage.duration !== null && outage.duration !== undefined) {
+      return (outage as any).duration;
+    }
+    
+    // If neither is available but we have start and end time, calculate it
+    if (outage.start_time && outage.end_time) {
+      const start = new Date(outage.start_time);
+      const end = new Date(outage.end_time);
+      const durationMs = end.getTime() - start.getTime();
+      return Math.round(durationMs / (1000 * 60)); // Convert ms to minutes
+    }
+    
+    // Default to 0 if we can't calculate
+    return 0;
+  };
+
+  return (
+    <View style={styles.container}>
+      <PageTitleBar title="Power Outage Tracker" showBack={true} />
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+          />
+        }
+      >
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {/* Power Toggle Section */}
+        <View style={[
+          styles.powerSection,
+          isPowerOn ? styles.powerOnSection : styles.powerOffSection
+        ]}>
+          <View style={styles.powerStatusContainer}>
+            {isPowerOn ? (
+              <Zap size={40} color="#4CAF50" />
+            ) : (
+              <ZapOff size={40} color="#F44336" />
+            )}
+            <Text style={[
+              styles.powerStatusText,
+              isPowerOn ? styles.powerOnText : styles.powerOffText
+            ]}>
+              Power is {isPowerOn ? 'ON' : 'OFF'}
+            </Text>
+          </View>
+
+          <Pressable 
+            style={[
+              styles.powerButton,
+              isPowerOn ? styles.powerOnButton : styles.powerOffButton,
+              isToggling && styles.disabledButton
+            ]}
+            onPress={togglePower}
+            disabled={isToggling}
+          >
+            {isToggling ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Power size={24} color="#fff" />
+                <Text style={styles.powerButtonText}>
+                  Toggle Power {isPowerOn ? 'OFF' : 'ON'}
+                </Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+
+        {/* Current Status Section */}
+        {!isPowerOn && currentOutageId && (
+          <View style={styles.currentOutageSection}>
+            <View style={styles.outageHeaderRow}>
+              <ZapOff size={18} color="#F44336" />
+              <Text style={styles.currentOutageTitle}>Current Power Outage</Text>
+            </View>
+            <View style={styles.currentOutageInfo}>
+              <Text style={styles.currentOutageStartTime}>
+                Started: {outages.length > 0 ? formatDate(outages[0].start_time) : 'Loading...'}
+              </Text>
+              <View style={styles.outageTimerRow}>
+                <Clock size={14} color="#666" />
+                <Text style={styles.currentOutageDuration}>
+                  Duration: {outages.length > 0 && outages[0].start_time ? (
+                    formatDuration(calculateOutageDuration(outages[0]))
+                  ) : 'Calculating...'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Working Hours Pie Chart */}
+        {outages.length > 0 && <WorkingHoursPieChart outages={outages} />}
+
+        {/* Outage History Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Outage History</Text>
+          
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#2B7BB0" />
+              <Text style={styles.loadingText}>Loading outage history...</Text>
+            </View>
+          ) : outages.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <ZapOff size={32} color="#ccc" />
+              <Text style={styles.emptyText}>No power outages recorded</Text>
+            </View>
+          ) : (
+            <View style={styles.outageList}>
+               {outages.map((outage, index) => (
+                 <View key={outage.id} style={[
+                   styles.outageItem,
+                   index === 0 && styles.firstOutageItem,
+                   index === outages.length - 1 && styles.lastOutageItem,
+                 ]}>
+                   <View style={styles.outageHeader}>
+                     <ZapOff size={16} color="#F44336" />
+                     <Text style={styles.outageStartTime}>
+                       {formatDate(outage.start_time)}
+                     </Text>
+                   </View>
+                   <View style={styles.outageDetails}>
+                     {outage.end_time ? (
+                       <>
+                         <Text style={styles.outageEndTime}>
+                           Power Restored: {formatDate(outage.end_time)}
+                         </Text>
+                         <Text style={styles.outageDuration}>
+                           Duration: {formatDuration(calculateOutageDuration(outage))}
+                         </Text>
+                       </>
+                     ) : (
+                       <Text style={styles.outageOngoing}>
+                         Ongoing outage
+                       </Text>
+                     )}
+                   </View>
+                 </View>
+               ))}
+             </View>
+          )}
+        </View>
+        <View style={styles.bottomSpace} />
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f6fa',
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  errorContainer: {
+    padding: 16,
+    backgroundColor: '#ffebee',
+    borderRadius: 8,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#d32f2f',
+    textAlign: 'center',
+  },
+  powerSection: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  powerOnSection: {
+    backgroundColor: '#e8f5e9',
+  },
+  powerOffSection: {
+    backgroundColor: '#ffebee',
+  },
+  powerStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  powerStatusText: {
+    fontSize: 24,
+    fontFamily: 'FiraSans_600SemiBold',
+    marginLeft: 12,
+  },
+  powerOnText: {
+    color: '#2E7D32',
+  },
+  powerOffText: {
+    color: '#C62828',
+  },
+  powerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  powerOnButton: {
+    backgroundColor: '#F44336',
+  },
+  powerOffButton: {
+    backgroundColor: '#4CAF50',
+  },
+  disabledButton: {
+    opacity: 0.7,
+  },
+  powerButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: 'FiraSans_600SemiBold',
+    marginLeft: 8,
+  },
+  currentOutageSection: {
+    padding: 16,
+    margin: 16,
+    marginTop: 0,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FFCC80',
+  },
+  outageHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  currentOutageTitle: {
+    fontSize: 18,
+    fontFamily: 'FiraSans_600SemiBold',
+    color: '#E65100',
+    marginLeft: 8,
+  },
+  currentOutageInfo: {
+    marginLeft: 26,
+  },
+  currentOutageStartTime: {
+    fontSize: 15,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#333',
+    marginBottom: 4,
+  },
+  outageTimerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  currentOutageDuration: {
+    fontSize: 15,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#333',
+    marginLeft: 4,
+  },
+  sectionContainer: {
+    padding: 16,
+    margin: 16,
+    marginTop: 0,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: 'FiraSans_600SemiBold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  loadingContainer: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 8,
+    fontSize: 16,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#666',
+  },
+  emptyContainer: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  emptyText: {
+    marginTop: 8,
+    fontSize: 16,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#666',
+  },
+  outageList: {
+    marginBottom: 8,
+  },
+  outageItem: {
+    padding: 16,
+    backgroundColor: '#f9f9f9',
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginBottom: 8,
+  },
+  firstOutageItem: {
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+  },
+  lastOutageItem: {
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    marginBottom: 0,
+  },
+  outageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  outageStartTime: {
+    fontSize: 15,
+    fontFamily: 'FiraSans_600SemiBold',
+    color: '#333',
+    marginLeft: 8,
+  },
+  outageDetails: {
+    marginLeft: 24,
+  },
+  outageEndTime: {
+    fontSize: 14,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#555',
+    marginBottom: 4,
+  },
+  outageDuration: {
+    fontSize: 14,
+    fontFamily: 'FiraSans_600SemiBold',
+    color: '#333',
+  },
+  outageOngoing: {
+    fontSize: 14,
+    fontFamily: 'FiraSans_600SemiBold',
+    color: '#F44336',
+  },
+  chartContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    margin: 16,
+    marginTop: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  chartHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  chartTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chartTitle: {
+    fontSize: 18,
+    fontFamily: 'FiraSans_600SemiBold',
+    color: '#333',
+    marginLeft: 8,
+  },
+  periodToggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  periodLabel: {
+    fontSize: 14,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#666',
+    marginLeft: 8,
+  },
+  timePeriodToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    justifyContent: 'center',
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignSelf: 'center',
+  },
+  periodButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderWidth: 0,
+    backgroundColor: '#f5f5f5',
+  },
+  activePeriodButton: {
+    backgroundColor: '#E8F5E9',
+  },
+  periodButtonText: {
+    fontSize: 14,
+    fontFamily: 'FiraSans_600SemiBold',
+    color: '#333',
+  },
+  activePeriodButtonText: {
+    color: '#4CAF50',
+  },
+  chartContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  chartWrapper: {
+    width: 180,
+    height: 180,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  chart: {
+    height: 200,
+  },
+  chartCenterLabel: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chartPercentage: {
+    fontSize: 24,
+    fontFamily: 'FiraSans_700Bold',
+    color: '#333',
+  },
+  chartPercentageLabel: {
+    fontSize: 14,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#666',
+  },
+  chartLegend: {
+    flex: 1,
+    paddingLeft: 16,
+    justifyContent: 'center',
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  legendColor: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  legendText: {
+    fontSize: 14,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#333',
+  },
+  chartNote: {
+    fontSize: 12,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#666',
+    marginTop: 16,
+  },
+  emptyChartContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyChartText: {
+    fontSize: 16,
+    fontFamily: 'FiraSans_400Regular',
+    color: '#666',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  outageStatus: {
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  bottomSpace: {
+    height: 50, // Adjust this value based on the navigation bar height
+  },
+}); 

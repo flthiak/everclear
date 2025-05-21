@@ -1,45 +1,111 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
-import { Platform } from 'react-native';
-
-import { HapticTab } from '@/components/HapticTab';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-import TabBarBackground from '@/components/ui/TabBarBackground';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Stack } from 'expo-router';
+import { StyleSheet, View } from 'react-native';
+import HamburgerMenu from '@/components/HamburgerMenu';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { useState } from 'react';
+import { usePathname } from 'expo-router';
+import BottomNavBar, { TabName } from '../../components/BottomNavBar';
+import AppHeader from '@/components/AppHeader';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const pathname = usePathname();
+
+  const openMenu = () => setIsMenuOpen(true);
+  const closeMenu = () => setIsMenuOpen(false);
+
+  // Determine active tab based on current pathname
+  const getActiveTab = (): TabName => {
+    if (pathname === '/(tabs)' || pathname === '/(tabs)/index') return 'home';
+    if (pathname.includes('/sales')) return 'sales';
+    if (pathname.includes('/deliveries')) return 'deliveries';
+    if (pathname.includes('/payments')) return 'payments';
+    if (pathname.includes('/stock')) return 'stock';
+    if (pathname.includes('/supplies')) return 'supplies';
+    if (pathname.includes('/management')) return 'management';
+    return 'home'; // Default
+  };
+
+  const isIndexScreen = pathname === '/(tabs)' || pathname === '/(tabs)/index';
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-        tabBarBackground: TabBarBackground,
-        tabBarStyle: Platform.select({
-          ios: {
-            // Use a transparent background on iOS to show the blur effect
-            position: 'absolute',
-          },
-          default: {},
-        }),
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
-      />
-    </Tabs>
+    <View style={styles.container}>
+      {isMenuOpen && (
+        <HamburgerMenu isOpen={isMenuOpen} onClose={closeMenu} />
+      )}
+      <Animated.View 
+        style={{ flex: 1 }}
+        entering={FadeIn.duration(300)}
+        exiting={FadeOut.duration(200)}
+      >
+        <AppHeader onMenuPress={openMenu} />
+        <Stack
+          screenOptions={{
+            headerShown: false
+          }}
+        >
+          <Stack.Screen
+            name="index"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="sales"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="deliveries"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="payments"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="stock"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="supplies"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="management"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="[id]"
+            options={{
+              headerShown: false,
+            }}
+          />
+        </Stack>
+      </Animated.View>
+      <BottomNavBar activeTab={getActiveTab()} />
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    position: 'relative',
+  },
+  content: {
+    flex: 1,
+    paddingBottom: 10, // Add bottom padding to account for the nav bar
+  }
+});
