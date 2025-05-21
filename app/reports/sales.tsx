@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { BarChart, LineChart, PieChart } from 'react-native-chart-kit';
-import { ChevronDown, Calendar, Search, Filter, ArrowDownUp, Download, Share2 } from 'lucide-react-native';
+import { ChevronDown, Calendar, Search, ListFilter as Filter, ArrowDownUp, Download, Share2 } from 'lucide-react-native';
 import PageTitleBar from '@/components/PageTitleBar';
 import DatePicker from '@/components/DatePicker';
 
