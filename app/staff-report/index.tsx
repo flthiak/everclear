@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Share, Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import PageTitleBar from '@/components/PageTitleBar';
-import { Calendar, ChevronDown, FileText, Filter, IndianRupee, Printer, User } from 'lucide-react-native';
+import { Calendar, ChevronDown, FileText, ListFilter as Filter, IndianRupee, Printer, User } from 'lucide-react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
