@@ -12,12 +12,27 @@ interface User {
   role: string;
   permissions: string[];
   lastLogin: string;
+  is_admin?: boolean;
 }
 
 interface Role {
   id: string;
   name: string;
   permissions: string[];
+}
+
+interface SystemStatus {
+  activeUsers: number;
+  userRoles: number;
+  uptime: string;
+  version: string;
+}
+
+interface ActivityLog {
+  time: string;
+  action: string;
+  user: string;
+  id: string;
 }
 
 export default function UsersScreen() {
@@ -38,6 +53,14 @@ export default function UsersScreen() {
   const [editLoading, setEditLoading] = useState(false);
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
   const [showEditRoleDropdown, setShowEditRoleDropdown] = useState(false);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus>({
+    activeUsers: 0,
+    userRoles: 0,
+    uptime: '99.9%',
+    version: 'v2.1.0'
+  });
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [loadingStatus, setLoadingStatus] = useState(true);
 
   // Fetch users from the database
   const fetchUsers = async () => {
@@ -59,6 +82,7 @@ export default function UsersScreen() {
               ? ['View Sales', 'Create Sales', 'Edit Sales', 'Delete Sales']
               : ['View Sales', 'View Inventory'],
             lastLogin: u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never',
+            is_admin: u.is_admin
           }))
         );
       }
@@ -67,8 +91,92 @@ export default function UsersScreen() {
     }
   };
 
+  // Fetch system status data
+  const fetchSystemStatus = async () => {
+    try {
+      setLoadingStatus(true);
+      
+      // Get active users count
+      const { count: activeUsersCount, error: usersError } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true);
+      
+      if (usersError) throw usersError;
+      
+      // Get roles count
+      const { data: rolesData, error: rolesError } = await supabase
+        .from('users')
+        .select('role')
+        .order('role');
+      
+      if (rolesError) throw rolesError;
+      
+      // Count unique roles
+      const uniqueRoles = new Set();
+      rolesData?.forEach(user => uniqueRoles.add(user.role));
+      
+      // Get recent activity logs
+      const { data: logsData, error: logsError } = await supabase
+        .from('staff_payments')
+        .select(`
+          id,
+          staff_id,
+          amount,
+          purpose,
+          payment_date,
+          staff:staff_id(name)
+        `)
+        .order('payment_date', { ascending: false })
+        .limit(4);
+      
+      if (logsError) throw logsError;
+      
+      // Format activity logs
+      const formattedLogs = logsData?.map(log => {
+        const date = new Date(log.payment_date);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.round(diffMs / 60000);
+        const diffHours = Math.round(diffMs / 3600000);
+        
+        let timeAgo;
+        if (diffMins < 60) {
+          timeAgo = `${diffMins} mins ago`;
+        } else if (diffHours < 24) {
+          timeAgo = `${diffHours} hours ago`;
+        } else {
+          timeAgo = `${Math.round(diffHours / 24)} days ago`;
+        }
+        
+        return {
+          id: log.id,
+          time: timeAgo,
+          action: `Payment of ₹${log.amount} (${log.purpose})`,
+          user: log.staff?.name || 'Unknown'
+        };
+      }) || [];
+      
+      // Update state with real data
+      setSystemStatus({
+        activeUsers: activeUsersCount || 0,
+        userRoles: uniqueRoles.size || 0,
+        uptime: '99.9%', // This would typically come from a monitoring service
+        version: 'v2.1.0' // This would typically come from app config
+      });
+      
+      setActivityLogs(formattedLogs);
+      
+    } catch (err) {
+      console.error('Error fetching system status:', err);
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
+    fetchSystemStatus();
   }, []);
 
   const handleAddUser = async () => {
@@ -114,6 +222,10 @@ export default function UsersScreen() {
         phone: newUserPhone || null,
         pin: newUserPin,
         role: newUserRole,
+        is_admin: newUserRole === 'admin',
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }).select();
       if (error) {
         setLoading(false);
@@ -138,6 +250,7 @@ export default function UsersScreen() {
         role: newUserRole,
         lastLogin: 'Never',
         permissions: [],
+        is_admin: newUserRole === 'admin'
       }]);
       setNewUserName('');
       setNewUserPhone('');
@@ -149,6 +262,8 @@ export default function UsersScreen() {
       Alert.alert('Success', 'User added successfully to database');
       // Fetch users again to update the list
       fetchUsers();
+      // Also update system status
+      fetchSystemStatus();
     } catch (error: any) {
       setLoading(false);
       if (fallbackTimeout) clearTimeout(fallbackTimeout);
@@ -183,7 +298,7 @@ export default function UsersScreen() {
       if (activeTab === 'user') {
         updateFields = { name: editName, phone: editPhone };
       } else if (activeTab === 'role') {
-        updateFields = { is_admin: editRole === 'admin' };
+        updateFields = { is_admin: editRole === 'admin', role: editRole };
       } else if (activeTab === 'pin') {
         updateFields = { pin: editPin };
       }
@@ -198,10 +313,63 @@ export default function UsersScreen() {
       Alert.alert('Success', 'User updated successfully');
       closeEditModal();
       await fetchUsers();
+      
+      // Add to activity logs
+      const newActivity = {
+        id: Date.now().toString(),
+        time: 'just now',
+        action: `User ${editUser.name} updated`,
+        user: 'Admin'
+      };
+      setActivityLogs([newActivity, ...activityLogs.slice(0, 3)]);
+      
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to update user');
     } finally {
       setEditLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    try {
+      Alert.alert(
+        'Confirm Delete',
+        `Are you sure you want to delete ${userName}?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              const { error } = await supabase.from('users').delete().eq('id', userId);
+              
+              if (error) {
+                Alert.alert('Error', error.message || 'Failed to delete user');
+                return;
+              }
+              
+              // Remove user from list
+              setUsers(prevUsers => prevUsers.filter(user => user.id !== userId));
+              
+              // Update system status
+              fetchSystemStatus();
+              
+              // Add to activity logs
+              const newActivity = {
+                id: Date.now().toString(),
+                time: 'just now',
+                action: `User ${userName} deleted`,
+                user: 'Admin'
+              };
+              setActivityLogs([newActivity, ...activityLogs.slice(0, 3)]);
+              
+              Alert.alert('Success', 'User deleted successfully');
+            }
+          }
+        ]
+      );
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to delete user');
     }
   };
 
@@ -365,7 +533,10 @@ export default function UsersScreen() {
                         <Pressable style={[styles.actionButton, styles.editButton]} onPress={() => openEditModal(user)}>
                           <Pencil size={16} color="#2B7BB0" />
                         </Pressable>
-                        <Pressable style={[styles.actionButton, styles.deleteButton]}>
+                        <Pressable 
+                          style={[styles.actionButton, styles.deleteButton]}
+                          onPress={() => handleDeleteUser(user.id, user.name)}
+                        >
                           <Trash2 size={16} color="#dc3545" />
                         </Pressable>
                       </View>
@@ -380,50 +551,57 @@ export default function UsersScreen() {
             {/* System Status Card */}
             <View style={styles.statusCard}>
               <Text style={styles.statusTitle}>System Status</Text>
-              <View style={styles.statusGrid}>
-                <View style={styles.statusItem}>
-                  <Text style={styles.statusValue}>24</Text>
-                  <Text style={styles.statusLabel}>Active Users</Text>
+              {loadingStatus ? (
+                <ActivityIndicator size="small" color="#2B7BB0" style={{ marginVertical: 20 }} />
+              ) : (
+                <View style={styles.statusGrid}>
+                  <View style={styles.statusItem}>
+                    <Text style={styles.statusValue}>{systemStatus.activeUsers}</Text>
+                    <Text style={styles.statusLabel}>Active Users</Text>
+                  </View>
+                  <View style={styles.statusItem}>
+                    <Text style={styles.statusValue}>{systemStatus.userRoles}</Text>
+                    <Text style={styles.statusLabel}>User Roles</Text>
+                  </View>
+                  <View style={styles.statusItem}>
+                    <Text style={styles.statusValue}>{systemStatus.uptime}</Text>
+                    <Text style={styles.statusLabel}>Uptime</Text>
+                  </View>
+                  <View style={styles.statusItem}>
+                    <Text style={styles.statusValue}>{systemStatus.version}</Text>
+                    <Text style={styles.statusLabel}>Version</Text>
+                  </View>
                 </View>
-                <View style={styles.statusItem}>
-                  <Text style={styles.statusValue}>5</Text>
-                  <Text style={styles.statusLabel}>User Roles</Text>
-                </View>
-                <View style={styles.statusItem}>
-                  <Text style={styles.statusValue}>99.9%</Text>
-                  <Text style={styles.statusLabel}>Uptime</Text>
-                </View>
-                <View style={styles.statusItem}>
-                  <Text style={styles.statusValue}>v2.1.0</Text>
-                  <Text style={styles.statusLabel}>Version</Text>
-                </View>
-              </View>
+              )}
             </View>
             {/* Recent Activity Card */}
             <View style={styles.activityCard}>
               <Text style={styles.activityTitle}>Recent Activity</Text>
-              <View style={styles.activityList}>
-                <View style={styles.activityRow}>
-                  <Text style={styles.activityTime}>2 mins ago</Text>
-                  <Text style={styles.activityDesc}>User role updated</Text>
-                  <Text style={styles.activityBy}>by Admin</Text>
+              {loadingStatus ? (
+                <ActivityIndicator size="small" color="#2B7BB0" style={{ marginVertical: 20 }} />
+              ) : (
+                <View style={styles.activityList}>
+                  {activityLogs.length > 0 ? (
+                    activityLogs.map((activity) => (
+                      <View key={activity.id} style={styles.activityRow}>
+                        <Text style={styles.activityTime}>{activity.time}</Text>
+                        <Text style={[
+                          styles.activityDesc, 
+                          activity.action.includes('deleted') ? styles.activityHighlightRed :
+                          activity.action.includes('updated') ? styles.activityHighlightBlue :
+                          activity.action.includes('added') ? styles.activityHighlightGreen :
+                          styles.activityHighlight
+                        ]}>
+                          {activity.action}
+                        </Text>
+                        <Text style={styles.activityBy}>by {activity.user}</Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.noActivityText}>No recent activity</Text>
+                  )}
                 </View>
-                <View style={styles.activityRow}>
-                  <Text style={styles.activityTime}>15 mins ago</Text>
-                  <Text style={[styles.activityDesc, styles.activityHighlight]}>New user added</Text>
-                  <Text style={styles.activityBy}>by Manager</Text>
-                </View>
-                <View style={styles.activityRow}>
-                  <Text style={styles.activityTime}>1 hour ago</Text>
-                  <Text style={styles.activityDesc}>Settings changed</Text>
-                  <Text style={styles.activityBy}>by Admin</Text>
-                </View>
-                <View style={styles.activityRow}>
-                  <Text style={styles.activityTime}>2 hours ago</Text>
-                  <Text style={styles.activityDesc}>Permission modified</Text>
-                  <Text style={styles.activityBy}>by Supervisor</Text>
-                </View>
-              </View>
+              )}
             </View>
           </View>
         </ScrollView>
@@ -1018,6 +1196,18 @@ const styles = StyleSheet.create({
     color: '#2B7BB0',
     fontWeight: 'bold',
   },
+  activityHighlightGreen: {
+    color: '#4CAF50',
+    fontWeight: 'bold',
+  },
+  activityHighlightBlue: {
+    color: '#2196F3',
+    fontWeight: 'bold',
+  },
+  activityHighlightRed: {
+    color: '#F44336',
+    fontWeight: 'bold',
+  },
   activityBy: {
     fontSize: 13,
     color: '#888',
@@ -1025,4 +1215,11 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     fontFamily: 'AsapCondensed_400Regular',
   },
+  noActivityText: {
+    textAlign: 'center',
+    color: '#888',
+    fontStyle: 'italic',
+    padding: 20,
+    fontFamily: 'AsapCondensed_400Regular',
+  }
 });
