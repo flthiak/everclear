@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { BarChart, LineChart, PieChart } from 'react-native-chart-kit';
-import { ChevronDown, Calendar, Search, ListFilter as Filter, ArrowDownUp, Download, Share2 } from 'lucide-react-native';
+import { ChevronDown, Calendar, Search, ListFilter as Filter, ArrowDownUp, FileText } from 'lucide-react-native';
 import PageTitleBar from '@/components/PageTitleBar';
 import DatePicker from '@/components/DatePicker';
 
@@ -42,6 +42,7 @@ export default function SalesReportScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   
   // Data state
   const [salesData, setSalesData] = useState<SaleData[]>([]);
@@ -284,6 +285,17 @@ export default function SalesReportScreen() {
     return `₹${amount.toLocaleString('en-IN', {
       maximumFractionDigits: 0
     })}`;
+  };
+  
+  // Handle PDF generation and sharing
+  const handleGeneratePdfAndShare = () => {
+    setGeneratingPdf(true);
+    
+    // Simulate PDF generation and sharing
+    setTimeout(() => {
+      setGeneratingPdf(false);
+      alert('This is a placeholder for PDF generation and sharing functionality. In a real implementation, this would generate a PDF report and open the share dialog.');
+    }, 2000);
   };
   
   // Prepare chart data
@@ -612,16 +624,21 @@ export default function SalesReportScreen() {
           )}
         </View>
         
-        {/* Export Buttons */}
+        {/* Combined Export Button */}
         <View style={styles.exportContainer}>
-          <TouchableOpacity style={styles.exportButton}>
-            <Download size={16} color="#fff" />
-            <Text style={styles.exportButtonText}>Download Report</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.shareButton}>
-            <Share2 size={16} color="#fff" />
-            <Text style={styles.shareButtonText}>Share Report</Text>
+          <TouchableOpacity 
+            style={[styles.combinedButton, generatingPdf && styles.disabledButton]}
+            onPress={handleGeneratePdfAndShare}
+            disabled={generatingPdf}
+          >
+            {generatingPdf ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <FileText size={18} color="#fff" />
+                <Text style={styles.combinedButtonText}>Generate PDF & Share</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -875,44 +892,30 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   exportContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 40,
   },
-  exportButton: {
-    flex: 1,
+  combinedButton: {
     flexDirection: 'row',
     backgroundColor: '#4CAF50',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  exportButtonText: {
+  combinedButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
-    marginLeft: 8,
+    marginLeft: 10,
     fontFamily: 'AsapCondensed_400Regular',
   },
-  shareButton: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: '#2B7BB0',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  shareButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
-    fontFamily: 'AsapCondensed_400Regular',
-  },
+  disabledButton: {
+    opacity: 0.7,
+  }
 });
