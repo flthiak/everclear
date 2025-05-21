@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Switch, ScrollView, Alert, TextInput, Modal, Image } from 'react-native';
 import { useRouter } from 'expo-router';
-import { User, Phone, LogOut, ShieldCheck, Edit2, Save, Lock, X } from 'lucide-react-native';
+import { User, Phone, LogOut, ShieldCheck, LocationEdit as Edit2, Save, Lock, X } from 'lucide-react-native';
 import { useAuth } from '@/app/context/AuthContext';
 import PageTitleBar from '@/components/PageTitleBar';
 import AppHeader from '@/components/AppHeader';

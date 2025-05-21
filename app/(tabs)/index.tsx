@@ -70,7 +70,6 @@ export default function IndexScreen() {
         }
         
         const totalDue = paymentsData?.reduce((sum, sale) => sum + (sale.total_amount || 0), 0) || 0;
-        // console.log('Total payments due:', totalDue);
         setPaymentsTotal(totalDue);
         
         // Get weekly revenue
@@ -110,13 +109,26 @@ export default function IndexScreen() {
         
         setPendingDeliveries(deliveriesCount || 0);
         
-        // Get low stock items count
-        const { count: lowStockCount } = await supabase
-          .from('inventory')
-          .select('*', { count: 'exact', head: true })
-          .lt('quantity', 10); // Items with less than 10 in stock
+        // Updated query to get low stock items count from both factory and godown stock
+        const { data: lowStockData, error: lowStockError } = await supabase
+          .from('products')
+          .select(`
+            id,
+            factory_stock (quantity),
+            godown_stock (quantity)
+          `)
+          .or('factory_stock.quantity.lt.10,godown_stock.quantity.lt.10');
           
-        setLowStockItems(lowStockCount || 0);
+        if (lowStockError) {
+          console.error('Error fetching low stock items:', lowStockError);
+          setLowStockItems(0);
+        } else {
+          // Count products where either factory or godown stock is low
+          const lowStockCount = lowStockData?.filter(product => 
+            (product.factory_stock?.[0]?.quantity < 10 || product.godown_stock?.[0]?.quantity < 10)
+          ).length || 0;
+          setLowStockItems(lowStockCount);
+        }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       }
