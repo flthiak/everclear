@@ -446,97 +446,106 @@ export default function StaffReportScreen() {
           </View>
         )}
         
-        {/* Month Selector */}
-        <View style={styles.selectorContainer}>
-          <Text style={styles.selectorLabel}>Select Month:</Text>
-          <Pressable 
-            style={styles.monthSelector}
-            onPress={() => setShowMonthDropdown(!showMonthDropdown)}
-          >
-            <Text style={styles.monthSelectorText}>
-              {selectedMonth || 'Select Month'}
-            </Text>
-            <ChevronDown size={20} color="#2B7BB0" />
-          </Pressable>
-          
-          {showMonthDropdown && (
-            <View style={styles.monthDropdown}>
-              <ScrollView style={styles.monthDropdownScroll} nestedScrollEnabled={true}>
-                {monthlyReports.map((report, index) => (
-                  <Pressable
-                    key={index}
-                    style={styles.monthOption}
-                    onPress={() => {
-                      setSelectedMonth(`${report.month} ${report.year}`);
-                      setShowMonthDropdown(false);
-                    }}
-                  >
-                    <Text style={[
-                      styles.monthOptionText,
-                      selectedMonth === `${report.month} ${report.year}` && styles.selectedMonthText
-                    ]}>
-                      {report.month} {report.year}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-        </View>
-        
-        {/* Staff Filter */}
-        <View style={styles.selectorContainer}>
-          <View style={styles.filterHeader}>
-            <Text style={styles.selectorLabel}>Filter by Staff:</Text>
-            <Filter size={18} color="#2B7BB0" />
+        {/* Filters Row - Month and Staff in same row */}
+        <View style={styles.filtersRow}>
+          {/* Month Selector */}
+          <View style={styles.selectorContainer}>
+            <Text style={styles.selectorLabel}>Select Month:</Text>
+            <Pressable 
+              style={styles.selector}
+              onPress={() => {
+                setShowMonthDropdown(!showMonthDropdown);
+                if (showStaffDropdown) setShowStaffDropdown(false);
+              }}
+            >
+              <Text style={styles.selectorText}>
+                {selectedMonth || 'Select Month'}
+              </Text>
+              <ChevronDown size={20} color="#2B7BB0" />
+            </Pressable>
+            
+            {showMonthDropdown && (
+              <View style={styles.dropdown}>
+                <ScrollView style={styles.dropdownScroll} nestedScrollEnabled={true}>
+                  {monthlyReports.map((report, index) => (
+                    <Pressable
+                      key={index}
+                      style={styles.dropdownOption}
+                      onPress={() => {
+                        setSelectedMonth(`${report.month} ${report.year}`);
+                        setShowMonthDropdown(false);
+                      }}
+                    >
+                      <Text style={[
+                        styles.dropdownOptionText,
+                        selectedMonth === `${report.month} ${report.year}` && styles.selectedOptionText
+                      ]}>
+                        {report.month} {report.year}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
           </View>
-          <Pressable 
-            style={styles.monthSelector}
-            onPress={() => setShowStaffDropdown(!showStaffDropdown)}
-          >
-            <Text style={styles.monthSelectorText}>
-              {getSelectedStaffName()}
-            </Text>
-            <ChevronDown size={20} color="#2B7BB0" />
-          </Pressable>
           
-          {showStaffDropdown && (
-            <View style={styles.monthDropdown}>
-              <ScrollView style={styles.monthDropdownScroll} nestedScrollEnabled={true}>
-                <Pressable
-                  style={styles.monthOption}
-                  onPress={() => {
-                    setSelectedStaffId(null);
-                    setShowStaffDropdown(false);
-                  }}
-                >
-                  <Text style={[
-                    styles.monthOptionText,
-                    selectedStaffId === null && styles.selectedMonthText
-                  ]}>
-                    All Staff
-                  </Text>
-                </Pressable>
-                {staff.map((member) => (
+          {/* Staff Filter */}
+          <View style={styles.selectorContainer}>
+            <View style={styles.filterHeader}>
+              <Text style={styles.selectorLabel}>Filter by Staff:</Text>
+              <Filter size={18} color="#2B7BB0" />
+            </View>
+            <Pressable 
+              style={styles.selector}
+              onPress={() => {
+                setShowStaffDropdown(!showStaffDropdown);
+                if (showMonthDropdown) setShowMonthDropdown(false);
+              }}
+            >
+              <Text style={styles.selectorText}>
+                {getSelectedStaffName()}
+              </Text>
+              <ChevronDown size={20} color="#2B7BB0" />
+            </Pressable>
+            
+            {showStaffDropdown && (
+              <View style={styles.dropdown}>
+                <ScrollView style={styles.dropdownScroll} nestedScrollEnabled={true}>
                   <Pressable
-                    key={member.id}
-                    style={styles.monthOption}
+                    style={styles.dropdownOption}
                     onPress={() => {
-                      setSelectedStaffId(member.id);
+                      setSelectedStaffId(null);
                       setShowStaffDropdown(false);
                     }}
                   >
                     <Text style={[
-                      styles.monthOptionText,
-                      selectedStaffId === member.id && styles.selectedMonthText
+                      styles.dropdownOptionText,
+                      selectedStaffId === null && styles.selectedOptionText
                     ]}>
-                      {member.name}
+                      All Staff
                     </Text>
                   </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          )}
+                  {staff.map((member) => (
+                    <Pressable
+                      key={member.id}
+                      style={styles.dropdownOption}
+                      onPress={() => {
+                        setSelectedStaffId(member.id);
+                        setShowStaffDropdown(false);
+                      }}
+                    >
+                      <Text style={[
+                        styles.dropdownOptionText,
+                        selectedStaffId === member.id && styles.selectedOptionText
+                      ]}>
+                        {member.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
         </View>
         
         {/* Summary Card */}
@@ -721,8 +730,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'AsapCondensed_400Regular',
   },
-  selectorContainer: {
+  // New styles for the filters row
+  filtersRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 16,
+    zIndex: 1000,
+  },
+  selectorContainer: {
+    width: '48%',
     position: 'relative',
     zIndex: 1000,
   },
@@ -738,7 +754,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontFamily: 'AsapCondensed_400Regular',
   },
-  monthSelector: {
+  selector: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -748,12 +764,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
   },
-  monthSelectorText: {
-    fontSize: 16,
+  selectorText: {
+    fontSize: 14,
     color: '#333',
     fontFamily: 'AsapCondensed_400Regular',
   },
-  monthDropdown: {
+  dropdown: {
     position: 'absolute',
     top: 76,
     left: 0,
@@ -770,20 +786,20 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  monthDropdownScroll: {
+  dropdownScroll: {
     maxHeight: 200,
   },
-  monthOption: {
+  dropdownOption: {
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  monthOptionText: {
-    fontSize: 16,
+  dropdownOptionText: {
+    fontSize: 14,
     color: '#333',
     fontFamily: 'AsapCondensed_400Regular',
   },
-  selectedMonthText: {
+  selectedOptionText: {
     color: '#2B7BB0',
     fontWeight: '600',
   },
