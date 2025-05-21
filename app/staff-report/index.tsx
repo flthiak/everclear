@@ -464,7 +464,7 @@ export default function StaffReportScreen() {
               <ChevronDown size={20} color="#2B7BB0" />
             </Pressable>
             
-            {showMonthDropdown && (
+            {showMonthDropdown && monthlyReports.length > 0 && (
               <View style={styles.dropdown}>
                 <ScrollView style={styles.dropdownScroll} nestedScrollEnabled={true}>
                   {monthlyReports.map((report, index) => (
