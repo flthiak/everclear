@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Share, Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import PageTitleBar from '@/components/PageTitleBar';
-import { Calendar, ChevronDown, FileText, IndianRupee, Printer, User } from 'lucide-react-native';
+import { Calendar, ChevronDown, FileText, Filter, IndianRupee, Printer, User } from 'lucide-react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
@@ -43,6 +43,8 @@ export default function StaffReportScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [showMonthDropdown, setShowMonthDropdown] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
+  const [showStaffDropdown, setShowStaffDropdown] = useState(false);
 
   useEffect(() => {
     fetchStaffData();
@@ -173,10 +175,22 @@ export default function StaffReportScreen() {
     const year = parseInt(yearStr);
     const monthIndex = new Date(Date.parse(`${month} 1, ${year}`)).getMonth();
     
-    return payments.filter(payment => {
+    let filteredPayments = payments.filter(payment => {
       const paymentDate = new Date(payment.payment_date);
       return paymentDate.getFullYear() === year && paymentDate.getMonth() === monthIndex;
     });
+    
+    // Apply staff filter if selected
+    if (selectedStaffId) {
+      filteredPayments = filteredPayments.filter(payment => payment.staff_id === selectedStaffId);
+    }
+    
+    return filteredPayments;
+  };
+
+  const getFilteredStaff = () => {
+    if (!selectedStaffId) return staff;
+    return staff.filter(member => member.id === selectedStaffId);
   };
 
   const formatCurrency = (amount: number) => {
@@ -195,11 +209,12 @@ export default function StaffReportScreen() {
   const generatePdfHtml = () => {
     const report = getSelectedMonthReport();
     const monthPayments = getMonthPayments();
+    const filteredStaff = getFilteredStaff();
     
     if (!report) return '';
     
     // Create staff table rows
-    const staffRows = staff.map(member => `
+    const staffRows = filteredStaff.map(member => `
       <tr>
         <td>${member.name}</td>
         <td>${member.role}</td>
@@ -217,6 +232,10 @@ export default function StaffReportScreen() {
         <td style="text-align: right;">${formatCurrency(payment.amount)}</td>
       </tr>
     `).join('');
+    
+    // Calculate totals for filtered staff
+    const filteredTotalSalaries = filteredStaff.reduce((sum, member) => sum + member.base_pay, 0);
+    const filteredTotalPayments = monthPayments.reduce((sum, payment) => sum + payment.amount, 0);
     
     return `
       <!DOCTYPE html>
@@ -287,25 +306,25 @@ export default function StaffReportScreen() {
       <body>
         <div class="header">
           <div class="title">Staff Salary Report</div>
-          <div class="subtitle">${selectedMonth}</div>
+          <div class="subtitle">${selectedMonth}${selectedStaffId ? ' - Filtered by Staff' : ''}</div>
         </div>
         
         <div class="summary">
           <div class="summary-row">
             <span class="summary-label">Total Staff:</span>
-            <span>${report.staffCount}</span>
+            <span>${filteredStaff.length}</span>
           </div>
           <div class="summary-row">
             <span class="summary-label">Total Salaries:</span>
-            <span>${formatCurrency(report.totalSalaries)}</span>
+            <span>${formatCurrency(filteredTotalSalaries)}</span>
           </div>
           <div class="summary-row">
             <span class="summary-label">Total Payments:</span>
-            <span>${formatCurrency(report.totalPayments)}</span>
+            <span>${formatCurrency(filteredTotalPayments)}</span>
           </div>
           <div class="summary-row">
             <span class="summary-label">Balance:</span>
-            <span>${formatCurrency(report.balance)}</span>
+            <span>${formatCurrency(filteredTotalSalaries - filteredTotalPayments)}</span>
           </div>
         </div>
         
@@ -394,6 +413,12 @@ export default function StaffReportScreen() {
     }
   };
 
+  const getSelectedStaffName = () => {
+    if (!selectedStaffId) return 'All Staff';
+    const staffMember = staff.find(member => member.id === selectedStaffId);
+    return staffMember ? staffMember.name : 'All Staff';
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -408,6 +433,7 @@ export default function StaffReportScreen() {
 
   const selectedReport = getSelectedMonthReport();
   const monthPayments = getMonthPayments();
+  const filteredStaff = getFilteredStaff();
 
   return (
     <View style={styles.container}>
@@ -458,12 +484,69 @@ export default function StaffReportScreen() {
           )}
         </View>
         
+        {/* Staff Filter */}
+        <View style={styles.selectorContainer}>
+          <View style={styles.filterHeader}>
+            <Text style={styles.selectorLabel}>Filter by Staff:</Text>
+            <Filter size={18} color="#2B7BB0" />
+          </View>
+          <Pressable 
+            style={styles.monthSelector}
+            onPress={() => setShowStaffDropdown(!showStaffDropdown)}
+          >
+            <Text style={styles.monthSelectorText}>
+              {getSelectedStaffName()}
+            </Text>
+            <ChevronDown size={20} color="#2B7BB0" />
+          </Pressable>
+          
+          {showStaffDropdown && (
+            <View style={styles.monthDropdown}>
+              <ScrollView style={styles.monthDropdownScroll} nestedScrollEnabled={true}>
+                <Pressable
+                  style={styles.monthOption}
+                  onPress={() => {
+                    setSelectedStaffId(null);
+                    setShowStaffDropdown(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.monthOptionText,
+                    selectedStaffId === null && styles.selectedMonthText
+                  ]}>
+                    All Staff
+                  </Text>
+                </Pressable>
+                {staff.map((member) => (
+                  <Pressable
+                    key={member.id}
+                    style={styles.monthOption}
+                    onPress={() => {
+                      setSelectedStaffId(member.id);
+                      setShowStaffDropdown(false);
+                    }}
+                  >
+                    <Text style={[
+                      styles.monthOptionText,
+                      selectedStaffId === member.id && styles.selectedMonthText
+                    ]}>
+                      {member.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+        
         {/* Summary Card */}
         {selectedReport && (
           <View style={styles.summaryCard}>
             <View style={styles.summaryHeader}>
               <Calendar size={20} color="#2B7BB0" />
-              <Text style={styles.summaryTitle}>{selectedMonth} Summary</Text>
+              <Text style={styles.summaryTitle}>
+                {selectedMonth} Summary {selectedStaffId ? `(${getSelectedStaffName()})` : ''}
+              </Text>
             </View>
             
             <View style={styles.summaryGrid}>
@@ -471,7 +554,7 @@ export default function StaffReportScreen() {
                 <Text style={styles.summaryLabel}>Total Staff</Text>
                 <View style={styles.summaryValueContainer}>
                   <User size={16} color="#2B7BB0" />
-                  <Text style={styles.summaryValue}>{selectedReport.staffCount}</Text>
+                  <Text style={styles.summaryValue}>{filteredStaff.length}</Text>
                 </View>
               </View>
               
@@ -480,7 +563,7 @@ export default function StaffReportScreen() {
                 <View style={styles.summaryValueContainer}>
                   <IndianRupee size={16} color="#4CAF50" />
                   <Text style={[styles.summaryValue, { color: '#4CAF50' }]}>
-                    {formatCurrency(selectedReport.totalSalaries)}
+                    {formatCurrency(filteredStaff.reduce((sum, member) => sum + member.base_pay, 0))}
                   </Text>
                 </View>
               </View>
@@ -490,7 +573,7 @@ export default function StaffReportScreen() {
                 <View style={styles.summaryValueContainer}>
                   <IndianRupee size={16} color="#F44336" />
                   <Text style={[styles.summaryValue, { color: '#F44336' }]}>
-                    {formatCurrency(selectedReport.totalPayments)}
+                    {formatCurrency(monthPayments.reduce((sum, payment) => sum + payment.amount, 0))}
                   </Text>
                 </View>
               </View>
@@ -500,7 +583,10 @@ export default function StaffReportScreen() {
                 <View style={styles.summaryValueContainer}>
                   <IndianRupee size={16} color="#FF9800" />
                   <Text style={[styles.summaryValue, { color: '#FF9800' }]}>
-                    {formatCurrency(selectedReport.balance)}
+                    {formatCurrency(
+                      filteredStaff.reduce((sum, member) => sum + member.base_pay, 0) - 
+                      monthPayments.reduce((sum, payment) => sum + payment.amount, 0)
+                    )}
                   </Text>
                 </View>
               </View>
@@ -510,7 +596,7 @@ export default function StaffReportScreen() {
         
         {/* Staff List */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Staff List</Text>
+          <Text style={styles.sectionTitle}>Staff List {selectedStaffId ? `(${getSelectedStaffName()})` : ''}</Text>
           
           <View style={styles.table}>
             <View style={styles.tableHeader}>
@@ -521,7 +607,7 @@ export default function StaffReportScreen() {
             </View>
             
             <ScrollView style={styles.tableBody}>
-              {staff.map((member, index) => (
+              {filteredStaff.map((member, index) => (
                 <View 
                   key={member.id}
                   style={[
@@ -543,6 +629,7 @@ export default function StaffReportScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
             Payments Made ({selectedMonth || 'Select a month'})
+            {selectedStaffId ? ` - ${getSelectedStaffName()}` : ''}
           </Text>
           
           {monthPayments.length > 0 ? (
@@ -638,6 +725,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     position: 'relative',
     zIndex: 1000,
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   selectorLabel: {
     fontSize: 14,
